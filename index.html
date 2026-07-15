@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pendaftaran OTP - Semua Negara</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/intl-tel-input@17.0.8/build/css/intlTelInput.min.css">
+    <style>
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        .card {
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            background: rgba(255,255,255,0.95);
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border: none;
+            transition: all 0.3s;
+        }
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.4);
+        }
+        #otpInput {
+            font-size: 24px;
+            letter-spacing: 10px;
+            text-align: center;
+            font-weight: bold;
+        }
+        .alert {
+            border-radius: 15px;
+        }
+        .logo {
+            font-size: 60px;
+            text-align: center;
+            margin-bottom: 10px;
+        }
+        /* Styling untuk intl-tel-input */
+        .iti {
+            width: 100%;
+        }
+        .iti__flag-container {
+            z-index: 10;
+        }
+        .iti__selected-flag {
+            background: #f8f9fa !important;
+            border-radius: 8px 0 0 8px;
+        }
+        .iti__input {
+            padding-left: 80px !important;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="row justify-content-center">
+        <div class="col-md-6 col-lg-5">
+            <div class="card p-4">
+                <div class="card-body">
+                    <div class="logo">🌍</div>
+                    <h3 class="text-center mb-2">Daftar Akun</h3>
+                    <p class="text-center text-muted mb-4">Verifikasi nomor HP dengan OTP</p>
+
+                    <!-- STEP 1: Input Nomor -->
+                    <div id="step-phone">
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">Nomor HP (Semua Negara)</label>
+                            <input type="tel" id="phoneInput" class="form-control" 
+                                   placeholder="8123456789" autofocus>
+                            <small class="text-muted">Pilih kode negara lalu masukkan nomor</small>
+                        </div>
+                        <button id="sendOTP" class="btn btn-primary w-100 py-2" onclick="sendOTP()">
+                            📤 Kirim Kode OTP
+                        </button>
+                        <div id="recaptcha-container"></div>
+                    </div>
+
+                    <!-- STEP 2: Input OTP -->
+                    <div id="step-otp" style="display: none;">
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">Kode Verifikasi</label>
+                            <input type="text" id="otpInput" class="form-control" 
+                                   placeholder="6 digit" maxlength="6">
+                            <small class="text-muted">Masukkan 6 digit kode yang dikirim</small>
+                        </div>
+                        <button id="verifyOTP" class="btn btn-success w-100 py-2" onclick="verifyOTP()">
+                            ✅ Verifikasi & Daftar
+                        </button>
+                        <button class="btn btn-link w-100 mt-2" onclick="resendOTP()">
+                            🔄 Kirim Ulang Kode
+                        </button>
+                    </div>
+
+                    <!-- Pesan Status -->
+                    <div id="message" class="mt-3"></div>
+                    
+                    <div class="text-center mt-3">
+                        <small class="text-muted">🔒 Aman dengan Firebase Auth</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Load Library: intl-tel-input (untuk pilih kode negara) -->
+<script src="https://cdn.jsdelivr.net/npm/intl-tel-input@17.0.8/build/js/intlTelInput.min.js"></script>
+
+<!-- Load Firebase -->
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+
+<!-- Load Konfigurasi Firebase -->
+<script src="firebase-config.js"></script>
+
+<script>
+    // 🔥 INISIALISASI FIREBASE
+    firebase.initializeApp(firebaseConfig);
+    const auth = firebase.auth();
+    let confirmationResult = null;
+    let recaptchaVerifier = null;
+
+    // 🔥 INISIALISASI INTl-TEL-INPUT (Pilih Kode Negara)
+    const phoneInput = document.querySelector("#phoneInput");
+    const iti = window.intlTelInput(phoneInput, {
+        initialCountry: "id",  // Default Indonesia
+        separateDialCode: true,
+        preferredCountries: ['id', 'us', 'sg', 'my', 'jp', 'gb'],
+        utilsScript: "https://cdn.jsdelivr.net/npm/intl-tel-input@17.0.8/build/js/utils.js"
+    });
+
+    // 🔥 FUNGSI KIRIM OTP (Tanpa Popup reCAPTCHA)
+    function sendOTP() {
+        // Ambil nomor lengkap dengan kode negara
+        const fullPhone = iti.getNumber();  // Contoh: "+6281234567890"
+        
+        if (!iti.isValidNumber()) {
+            showMessage('❌ Masukkan nomor HP yang valid!', 'danger');
+            return;
+        }
+
+        showMessage('📤 Mengirim OTP ke ' + fullPhone + '...', 'info');
+        document.getElementById('sendOTP').disabled = true;
+
+        // 🔥 Invisible reCAPTCHA (Gak Muncul Popup!)
+        if (!recaptchaVerifier) {
+            recaptchaVerifier = new firebase.auth.RecaptchaVerifier('recaptcha-container', {
+                size: 'invisible',
+                callback: () => {
+                    // Callback kosong, biar gak muncul popup
+                }
+            });
+        }
+
+        auth.signInWithPhoneNumber(fullPhone, recaptchaVerifier)
+            .then(result => {
+                confirmationResult = result;
+                showMessage('✅ Kode OTP sudah dikirim! Cek SMS/WA Anda.', 'success');
+                document.getElementById('step-phone').style.display = 'none';
+                document.getElementById('step-otp').style.display = 'block';
+                document.getElementById('otpInput').focus();
+            })
+            .catch(error => {
+                showMessage('❌ Gagal: ' + error.message, 'danger');
+                console.error(error);
+                // Reset reCAPTCHA kalo error
+                if (recaptchaVerifier) {
+                    recaptchaVerifier.clear();
+                    recaptchaVerifier = null;
+                }
+            })
+            .finally(() => {
+                document.getElementById('sendOTP').disabled = false;
+            });
+    }
+
+    // 🔥 FUNGSI VERIFIKASI OTP
+    function verifyOTP() {
+        const otp = document.getElementById('otpInput').value.trim();
+
+        if (otp.length !== 6 || !/^[0-9]{6}$/.test(otp)) {
+            showMessage('❌ Masukkan 6 digit kode angka!', 'danger');
+            return;
+        }
+
+        showMessage('⏳ Memverifikasi...', 'info');
+        document.getElementById('verifyOTP').disabled = true;
+
+        confirmationResult.confirm(otp)
+            .then(result => {
+                const user = result.user;
+                showMessage(
+                    '🎉 SELAMAT! Nomor ' + user.phoneNumber + ' berhasil didaftarkan! ✅',
+                    'success'
+                );
+                document.getElementById('step-otp').style.display = 'none';
+                
+                // Simpan ke localStorage
+                localStorage.setItem('user_phone', user.phoneNumber);
+                localStorage.setItem('user_uid', user.uid);
+                localStorage.setItem('user_country', iti.getSelectedCountryData().name);
+            })
+            .catch(error => {
+                showMessage('❌ Kode salah atau kadaluarsa: ' + error.message, 'danger');
+                document.getElementById('otpInput').value = '';
+                document.getElementById('otpInput').focus();
+            })
+            .finally(() => {
+                document.getElementById('verifyOTP').disabled = false;
+            });
+    }
+
+    // 🔥 FUNGSI KIRIM ULANG
+    function resendOTP() {
+        showMessage('📤 Mengirim ulang...', 'info');
+        sendOTP();
+    }
+
+    // 🔥 HELPER: TAMPILKAN PESAN
+    function showMessage(text, type = 'info') {
+        const msg = document.getElementById('message');
+        msg.innerHTML = `<div class="alert alert-${type}">${text}</div>`;
+        msg.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+
+    // 🔥 AUTO-VERIFIKASI saat 6 digit terisi
+    document.getElementById('otpInput').addEventListener('input', function() {
+        if (this.value.length === 6 && /^[0-9]{6}$/.test(this.value)) {
+            verifyOTP();
+        }
+    });
+
+    // 🔥 ENTER KEY
+    document.getElementById('phoneInput').addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') sendOTP();
+    });
+    document.getElementById('otpInput').addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') verifyOTP();
+    });
+
+    // 🔥 TAMPILKAN KODE NEGARA YANG DIPILIH (Debug)
+    phoneInput.addEventListener('countrychange', function() {
+        const countryData = iti.getSelectedCountryData();
+        console.log('Negara:', countryData.name, 'Kode:', countryData.dialCode);
+    });
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
